@@ -1,5 +1,14 @@
 """Pydantic schemas for request/response validation."""
 
+from app.schemas.chat import (
+    ChatMessage,
+    ChatRequest,
+    ChatResponse,
+    ChatStreamRequest,
+    ConversationHistoryResponse,
+    SourceDocument,
+    StreamEvent,
+)
 from app.schemas.common import ErrorResponse, HealthResponse, PaginatedResponse
 from app.schemas.document import (
     DocumentCreate,
@@ -10,6 +19,13 @@ from app.schemas.document import (
 )
 
 __all__ = [
+    "ChatMessage",
+    "ChatRequest",
+    "ChatResponse",
+    "ChatStreamRequest",
+    "ConversationHistoryResponse",
+    "SourceDocument",
+    "StreamEvent",
     "ErrorResponse",
     "HealthResponse",
     "PaginatedResponse",
