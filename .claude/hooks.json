@@ -1,12 +1,45 @@
 {
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/dangerous-command-blocker.sh"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/smart-commit.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/secret-scanner.sh"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit",
         "hooks": [
           {
             "type": "command",
-            "command": "if [[ \"$CLAUDE_FILE_PATHS\" == *.md ]]; then lines=$(wc -l < \"$CLAUDE_FILE_PATHS\" 2>/dev/null || echo 0); if [ \"$lines\" -gt 500 ]; then echo \"ERROR: Documentation files should not be longer than 500 lines. Current: $lines lines\" >&2; exit 1; fi; fi"
+            "command": ".claude/hooks/doc-line-limit.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/conventional-commits.sh"
           }
         ]
       }
