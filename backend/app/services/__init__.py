@@ -1,6 +1,11 @@
 """Service modules for business logic."""
 
 from app.services.chunking_service import ChunkingService, get_chunking_service
+from app.services.conversation_service import (
+    ConversationService,
+    get_conversation_service,
+    reset_conversation_service,
+)
 from app.services.document_service import DocumentService, get_document_service
 from app.services.embedding_service import (
     EmbeddingService,
@@ -30,6 +35,9 @@ from app.services.vector_store_service import (
 __all__ = [
     "ChunkingService",
     "get_chunking_service",
+    "ConversationService",
+    "get_conversation_service",
+    "reset_conversation_service",
     "DocumentService",
     "get_document_service",
     "EmbeddingService",

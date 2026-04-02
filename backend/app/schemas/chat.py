@@ -117,12 +117,3 @@ class ChatStreamRequest(BaseModel):
     )
 
 
-class ConversationHistoryResponse(BaseModel):
-    """Response schema for conversation history."""
-
-    session_id: str = Field(description="Session identifier")
-    messages: list[ChatMessage] = Field(
-        description="List of messages in the conversation"
-    )
-    created_at: datetime = Field(description="When the conversation started")
-    updated_at: datetime = Field(description="Last message timestamp")

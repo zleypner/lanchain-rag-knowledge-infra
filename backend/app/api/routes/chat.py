@@ -14,6 +14,7 @@ from app.schemas.chat import (
     ChatStreamRequest,
     SourceDocument,
 )
+from app.services.conversation_service import get_conversation_service
 from app.services.rag_chain import get_rag_chain
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
     1. Search the knowledge base for relevant documents
     2. Use the context to generate an accurate answer
     3. Return the answer with source attribution
+    4. Automatically maintain conversation history if session_id is provided
 
     Args:
         request: Chat request with message and optional history.
@@ -41,25 +43,34 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
     try:
         rag_chain = get_rag_chain()
+        conversation_service = get_conversation_service()
 
-        # Convert history if provided
-        history = None
-        if request.history:
-            history = [
+        # Get or build chat history
+        chat_history = None
+
+        if request.session_id:
+            # Use conversation service for automatic history management
+            chat_history = conversation_service.get_langchain_history(
+                request.session_id
+            )
+        elif request.history:
+            # Use provided history
+            chat_history = [
                 {"role": msg.role, "content": msg.content}
                 for msg in request.history
             ]
 
         # Execute RAG query
-        if history:
+        if chat_history:
             response = await rag_chain.query_with_history(
                 question=request.message,
-                history=history,
+                history=chat_history if isinstance(chat_history, list) and chat_history and isinstance(chat_history[0], dict) else [],
                 k=request.k,
             )
         else:
             response = await rag_chain.query(
                 question=request.message,
+                chat_history=chat_history,
                 k=request.k,
             )
 
@@ -76,10 +87,30 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 for src in response.sources
             ]
 
+        # Store exchange in conversation history if session_id provided
+        session_id = request.session_id
+        if session_id:
+            conversation_service.add_exchange(
+                session_id=session_id,
+                user_message=request.message,
+                assistant_message=response.answer,
+                sources=response.sources if request.include_sources else None,
+            )
+        else:
+            # Generate a new session ID for tracking
+            conversation = conversation_service.create_conversation()
+            session_id = conversation.id
+            conversation_service.add_exchange(
+                session_id=session_id,
+                user_message=request.message,
+                assistant_message=response.answer,
+                sources=response.sources if request.include_sources else None,
+            )
+
         return ChatResponse(
             answer=response.answer,
             sources=sources,
-            session_id=request.session_id,
+            session_id=session_id,
             metadata=response.metadata,
         )
 
@@ -115,25 +146,49 @@ async def chat_stream(request: ChatStreamRequest) -> StreamingResponse:
         """Generate SSE events."""
         try:
             rag_chain = get_rag_chain()
+            conversation_service = get_conversation_service()
 
-            # Convert history if provided
-            history = None
-            if request.history:
-                history = [
+            # Get chat history from session or request
+            chat_history = None
+            if request.session_id:
+                chat_history = conversation_service.get_langchain_history(
+                    request.session_id
+                )
+            elif request.history:
+                chat_history = [
                     {"role": msg.role, "content": msg.content}
                     for msg in request.history
                 ]
 
+            # Track full response for conversation storage
+            full_response = ""
+            sources_data = []
+
             # Stream the response
             async for event in rag_chain.stream(
                 question=request.message,
-                chat_history=None,  # Will use history after conversion
+                chat_history=chat_history,
                 k=request.k,
             ):
                 event_type = event.get("type", "unknown")
-                event_data = json.dumps(event)
 
+                if event_type == "token":
+                    full_response += event.get("content", "")
+                elif event_type == "sources":
+                    sources_data = event.get("sources", [])
+
+                event_data = json.dumps(event)
                 yield f"event: {event_type}\ndata: {event_data}\n\n"
+
+            # Store exchange in conversation history
+            session_id = request.session_id
+            if session_id and full_response:
+                conversation_service.add_exchange(
+                    session_id=session_id,
+                    user_message=request.message,
+                    assistant_message=full_response,
+                    sources=sources_data,
+                )
 
         except Exception as e:
             logger.exception(f"Stream error: {e}")
@@ -157,14 +212,19 @@ async def chat_stream(request: ChatStreamRequest) -> StreamingResponse:
 @router.get("/statistics")
 async def get_chat_statistics() -> dict:
     """
-    Get statistics about the RAG system.
+    Get statistics about the RAG system and conversations.
 
     Returns:
-        Dictionary with retrieval and LLM statistics.
+        Dictionary with retrieval, LLM, and conversation statistics.
     """
     try:
         rag_chain = get_rag_chain()
-        return rag_chain.get_statistics()
+        conversation_service = get_conversation_service()
+
+        stats = rag_chain.get_statistics()
+        stats["conversations"] = conversation_service.get_statistics()
+
+        return stats
     except Exception as e:
         logger.error(f"Failed to get statistics: {e}")
         raise HTTPException(
