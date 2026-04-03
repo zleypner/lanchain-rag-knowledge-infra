@@ -34,16 +34,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Upload directory: {settings.upload_dir.absolute()}")
 
-    # Future: Initialize services here
-    # - Database connection pool
-    # - Vector store client
-    # - LLM client
+    # Initialize database connection (if database URL is configured)
+    if settings.database_url:
+        from app.db.session import close_db
+
+        logger.info("Database connection configured")
+        logger.info(f"Vector store type: {settings.vector_store_type}")
 
     yield
 
     # Shutdown
     logger.info("Shutting down LangChain RAG API")
-    # Future: Cleanup resources here
+
+    # Close database connections
+    if settings.database_url:
+        from app.db.session import close_db
+
+        await close_db()
+        logger.info("Database connections closed")
 
 
 # Create FastAPI application

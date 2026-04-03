@@ -83,10 +83,15 @@ class Settings(BaseSettings):
     faiss_index_path: Path = Path("./data/faiss_index")
 
     # -----------------
-    # Database (Phase 5)
+    # Database
     # -----------------
-    database_url: str = ""
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/rag_knowledge"
+    database_url_sync: str = "postgresql://postgres:postgres@localhost:5432/rag_knowledge"
+    database_pool_size: int = 5
+    database_max_overflow: int = 10
+    database_echo: bool = False
     pgvector_collection: str = "document_embeddings"
+    embedding_dimensions: int = 1536  # OpenAI text-embedding-3-small dimensions
 
     # -----------------
     # RAG Configuration
