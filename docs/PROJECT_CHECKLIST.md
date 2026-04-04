@@ -232,10 +232,10 @@
 - [ ] Test local Docker deployment
 
 ### 7.2 Environment Configuration
-- [ ] Create production environment configs
-- [ ] Set up health check endpoints
-- [ ] Configure CORS for production
-- [ ] Add rate limiting
+- [x] Create production environment configs
+- [x] Set up health check endpoints (with DB connectivity)
+- [x] Configure CORS for production
+- [x] Add rate limiting (slowapi)
 
 ### 7.3 Documentation
 - [ ] Complete API documentation
