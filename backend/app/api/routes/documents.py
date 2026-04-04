@@ -4,7 +4,7 @@ import math
 
 from fastapi import APIRouter, File, Query, UploadFile
 
-from app.api.deps import DocumentServiceDep, IngestionServiceDep
+from app.api.deps import CurrentUserOptionalDep, DocumentServiceDep, IngestionServiceDep
 from app.models.document import DocumentStatus
 from app.schemas.document import (
     DocumentDeleteResponse,
@@ -20,6 +20,7 @@ router = APIRouter()
 @router.post("/upload", response_model=DocumentUploadResponse)
 async def upload_document(
     service: DocumentServiceDep,
+    current_user: CurrentUserOptionalDep,
     file: UploadFile = File(..., description="Document file to upload"),
 ) -> DocumentUploadResponse:
     """

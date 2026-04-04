@@ -5,6 +5,7 @@ from typing import Any
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
+    Boolean,
     DateTime,
     Enum,
     ForeignKey,
@@ -22,11 +23,57 @@ from app.models.conversation import MessageRole
 from app.models.document import DocumentStatus
 
 
+class UserModel(Base, UUIDMixin, TimestampMixin):
+    """SQLAlchemy model for users."""
+
+    __tablename__ = "users"
+
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_superuser: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # Relationships
+    documents: Mapped[list["DocumentModel"]] = relationship(
+        "DocumentModel",
+        back_populates="owner",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+    conversations: Mapped[list["ConversationModel"]] = relationship(
+        "ConversationModel",
+        back_populates="owner",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+    # Indexes
+    __table_args__ = (
+        Index("ix_users_email", "email"),
+    )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "id": self.id,
+            "email": self.email,
+            "full_name": self.full_name,
+            "is_active": self.is_active,
+            "is_superuser": self.is_superuser,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 class DocumentModel(Base, UUIDMixin, TimestampMixin):
     """SQLAlchemy model for documents."""
 
     __tablename__ = "documents"
 
+    user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,  # Nullable for backward compatibility
+    )
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
     file_path: Mapped[str] = mapped_column(String(512), nullable=False)
@@ -46,6 +93,10 @@ class DocumentModel(Base, UUIDMixin, TimestampMixin):
     )
 
     # Relationships
+    owner: Mapped["UserModel | None"] = relationship(
+        "UserModel",
+        back_populates="documents",
+    )
     chunks: Mapped[list["DocumentChunkModel"]] = relationship(
         "DocumentChunkModel",
         back_populates="document",
@@ -55,6 +106,7 @@ class DocumentModel(Base, UUIDMixin, TimestampMixin):
 
     # Indexes
     __table_args__ = (
+        Index("ix_documents_user_id", "user_id"),
         Index("ix_documents_status", "status"),
         Index("ix_documents_created_at", "created_at"),
     )
@@ -137,6 +189,10 @@ class ConversationModel(Base, UUIDMixin, TimestampMixin):
 
     __tablename__ = "conversations"
 
+    user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,  # Nullable for backward compatibility
+    )
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     metadata_: Mapped[dict[str, Any]] = mapped_column(
         "metadata",
@@ -146,6 +202,10 @@ class ConversationModel(Base, UUIDMixin, TimestampMixin):
     )
 
     # Relationships
+    owner: Mapped["UserModel | None"] = relationship(
+        "UserModel",
+        back_populates="conversations",
+    )
     messages: Mapped[list["MessageModel"]] = relationship(
         "MessageModel",
         back_populates="conversation",
@@ -155,7 +215,10 @@ class ConversationModel(Base, UUIDMixin, TimestampMixin):
     )
 
     # Indexes
-    __table_args__ = (Index("ix_conversations_created_at", "created_at"),)
+    __table_args__ = (
+        Index("ix_conversations_user_id", "user_id"),
+        Index("ix_conversations_created_at", "created_at"),
+    )
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""

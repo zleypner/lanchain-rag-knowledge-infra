@@ -107,6 +107,13 @@ class Settings(BaseSettings):
     rate_limit_burst: int = 10
 
     # -----------------
+    # Authentication
+    # -----------------
+    secret_key: str = "change-this-in-production-to-a-secure-random-string"
+    access_token_expire_minutes: int = 60 * 24 * 7  # 7 days
+    algorithm: str = "HS256"
+
+    # -----------------
     # Logging
     # -----------------
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"

@@ -26,6 +26,7 @@ class DocumentRepository:
         file_type: str,
         file_size: int,
         metadata: dict[str, Any] | None = None,
+        user_id: str | None = None,
     ) -> DocumentModel:
         """
         Create a new document record.
@@ -38,12 +39,14 @@ class DocumentRepository:
             file_type: File extension/type.
             file_size: File size in bytes.
             metadata: Optional metadata dictionary.
+            user_id: Optional user ID for document ownership.
 
         Returns:
             Created DocumentModel instance.
         """
         document = DocumentModel(
             id=str(uuid4()),
+            user_id=user_id,
             filename=filename,
             original_filename=original_filename,
             file_path=file_path,
@@ -57,7 +60,7 @@ class DocumentRepository:
         session.add(document)
         await session.flush()
 
-        logger.info(f"Created document record: {document.id}")
+        logger.info(f"Created document record: {document.id} (user: {user_id})")
         return document
 
     async def get_by_id(
@@ -86,6 +89,7 @@ class DocumentRepository:
         skip: int = 0,
         limit: int = 10,
         status: DocumentStatus | None = None,
+        user_id: str | None = None,
     ) -> tuple[list[DocumentModel], int]:
         """
         List documents with pagination.
@@ -95,6 +99,7 @@ class DocumentRepository:
             skip: Number of records to skip.
             limit: Maximum number of records to return.
             status: Optional status filter.
+            user_id: Optional user ID to filter by owner.
 
         Returns:
             Tuple of (documents list, total count).
@@ -102,6 +107,11 @@ class DocumentRepository:
         # Build base query
         query = select(DocumentModel)
         count_query = select(func.count(DocumentModel.id))
+
+        # Apply user filter if provided
+        if user_id is not None:
+            query = query.where(DocumentModel.user_id == user_id)
+            count_query = count_query.where(DocumentModel.user_id == user_id)
 
         # Apply status filter if provided
         if status is not None:
