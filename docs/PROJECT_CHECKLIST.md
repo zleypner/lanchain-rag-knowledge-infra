@@ -222,11 +222,12 @@
 
 ### 7.1 Containerization
 - [x] Create Dockerfile for backend
-- [ ] Create Dockerfile for frontend
+- [x] Create Dockerfile for frontend
 - [x] Create docker-compose.yml
 - [x] Add PostgreSQL service (with pgvector)
 - [x] Add PgAdmin service (optional, with profile)
 - [x] Add backend service to docker-compose
+- [x] Add frontend service to docker-compose
 - [ ] Add Redis service (optional)
 - [ ] Test local Docker deployment
 
