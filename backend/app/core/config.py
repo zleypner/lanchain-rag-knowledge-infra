@@ -101,6 +101,12 @@ class Settings(BaseSettings):
     chunk_overlap: int = 200
 
     # -----------------
+    # Rate Limiting
+    # -----------------
+    rate_limit_per_minute: int = 60
+    rate_limit_burst: int = 10
+
+    # -----------------
     # Logging
     # -----------------
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"

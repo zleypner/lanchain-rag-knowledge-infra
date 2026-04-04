@@ -61,6 +61,11 @@ aiofiles>=23.2.1
 langchain-ollama>=0.0.2
 
 # -----------------
+# Rate Limiting
+# -----------------
+slowapi>=0.1.9
+
+# -----------------
 # Utilities
 # -----------------
 python-jose[cryptography]>=3.3.0
