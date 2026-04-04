@@ -2,10 +2,11 @@
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from sqlalchemy import text
 
 from app import __version__
-from app.api.deps import SettingsDep
+from app.api.deps import SessionDep, SettingsDep
 from app.schemas.common import HealthResponse
 
 router = APIRouter()
@@ -27,18 +28,41 @@ async def health_check(settings: SettingsDep) -> HealthResponse:
 
 
 @router.get("/ready")
-async def readiness_check() -> dict[str, str]:
+async def readiness_check(
+    session: SessionDep,
+    settings: SettingsDep,
+) -> dict[str, str | dict[str, str]]:
     """
     Readiness check for container orchestration.
 
-    Checks if the application is ready to serve traffic.
-    Future: Add database and vector store connectivity checks.
+    Checks if the application is ready to serve traffic by verifying:
+    - Database connectivity
+    - Vector store availability (if using pgvector)
     """
-    # TODO: Add checks for:
-    # - Database connection
-    # - Vector store connection
-    # - LLM API availability
-    return {"status": "ready"}
+    checks: dict[str, str] = {}
+
+    # Check database connection
+    try:
+        await session.execute(text("SELECT 1"))
+        checks["database"] = "connected"
+    except Exception as e:
+        checks["database"] = f"error: {str(e)}"
+        raise HTTPException(status_code=503, detail={"status": "not_ready", "checks": checks})
+
+    # Check pgvector extension if using pgvector
+    if settings.vector_store_type == "pgvector":
+        try:
+            result = await session.execute(
+                text("SELECT extname FROM pg_extension WHERE extname = 'vector'")
+            )
+            if result.fetchone():
+                checks["pgvector"] = "enabled"
+            else:
+                checks["pgvector"] = "not_installed"
+        except Exception as e:
+            checks["pgvector"] = f"error: {str(e)}"
+
+    return {"status": "ready", "checks": checks}
 
 
 @router.get("/live")
