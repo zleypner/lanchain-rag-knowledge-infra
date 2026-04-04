@@ -1,6 +1,36 @@
 version: "3.8"
 
 services:
+  # Backend API Service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: rag-backend
+    restart: unless-stopped
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-rag_knowledge}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - VECTOR_STORE_TYPE=pgvector
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - CORS_ORIGINS=http://localhost:3000,http://frontend:3000
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - backend_uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
   # PostgreSQL with pgvector extension
   postgres:
     image: pgvector/pgvector:pg16
@@ -44,6 +74,8 @@ volumes:
   postgres_data:
     driver: local
   pgadmin_data:
+    driver: local
+  backend_uploads:
     driver: local
 
 networks:
