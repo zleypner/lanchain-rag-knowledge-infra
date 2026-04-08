@@ -12,6 +12,11 @@ from app.services.embedding_service import (
     get_embedding_service,
     reset_embedding_service,
 )
+from app.services.hybrid_search import (
+    HybridSearchService,
+    get_hybrid_search_service,
+    reset_hybrid_search_service,
+)
 from app.services.ingestion_service import (
     IngestionResult,
     IngestionService,
@@ -20,7 +25,17 @@ from app.services.ingestion_service import (
 )
 from app.services.llm_service import LLMService, get_llm_service, reset_llm_service
 from app.services.parser_service import ParserService, get_parser_service
+from app.services.query_expansion import (
+    QueryExpansionService,
+    get_query_expansion_service,
+    reset_query_expansion_service,
+)
 from app.services.rag_chain import RAGChain, RAGResponse, get_rag_chain, reset_rag_chain
+from app.services.reranker import (
+    RerankerService,
+    get_reranker_service,
+    reset_reranker_service,
+)
 from app.services.retrieval_service import (
     RetrievalService,
     get_retrieval_service,
@@ -43,6 +58,9 @@ __all__ = [
     "EmbeddingService",
     "get_embedding_service",
     "reset_embedding_service",
+    "HybridSearchService",
+    "get_hybrid_search_service",
+    "reset_hybrid_search_service",
     "IngestionResult",
     "IngestionService",
     "get_ingestion_service",
@@ -52,10 +70,16 @@ __all__ = [
     "reset_llm_service",
     "ParserService",
     "get_parser_service",
+    "QueryExpansionService",
+    "get_query_expansion_service",
+    "reset_query_expansion_service",
     "RAGChain",
     "RAGResponse",
     "get_rag_chain",
     "reset_rag_chain",
+    "RerankerService",
+    "get_reranker_service",
+    "reset_reranker_service",
     "RetrievalService",
     "get_retrieval_service",
     "reset_retrieval_service",

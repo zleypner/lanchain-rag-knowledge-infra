@@ -1,6 +1,5 @@
 """FastAPI application entry point."""
 
-import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -16,17 +15,20 @@ from app import __version__
 from app.api.routes import api_router
 from app.core.config import settings
 from app.core.exceptions import RAGException
+from app.observability import get_logger, setup_logging
+from app.observability.middleware import ObservabilityMiddleware
+from app.observability.tracer import setup_tracing
 from app.schemas.common import ErrorResponse
+
+# Setup observability
+setup_logging()
+setup_tracing()
 
 # Initialize rate limiter
 limiter = Limiter(key_func=get_remote_address, default_limits=[f"{settings.rate_limit_per_minute}/minute"])
 
-# Configure logging
-logging.basicConfig(
-    level=getattr(logging, settings.log_level),
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
-logger = logging.getLogger(__name__)
+# Get structured logger
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
@@ -72,12 +74,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Configure rate limiting
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-app.add_middleware(SlowAPIMiddleware)
-
-# Configure CORS
+# Configure middleware
+# Order matters: outer middleware wraps inner middleware
+app.add_middleware(ObservabilityMiddleware)  # Add observability first
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -85,6 +84,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Configure rate limiting
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 
 # Exception handlers

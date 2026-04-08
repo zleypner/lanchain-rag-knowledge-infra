@@ -18,6 +18,31 @@ class ChatMessage(BaseModel):
     )
 
 
+class MetadataFilter(BaseModel):
+    """Schema for metadata filtering."""
+
+    document_type: str | None = Field(
+        default=None,
+        description="Filter by document type (pdf, txt, docx, md)"
+    )
+    document_id: str | None = Field(
+        default=None,
+        description="Filter by specific document ID"
+    )
+    source: str | None = Field(
+        default=None,
+        description="Filter by source filename"
+    )
+    date_from: str | None = Field(
+        default=None,
+        description="Filter documents from this date (ISO format)"
+    )
+    date_to: str | None = Field(
+        default=None,
+        description="Filter documents up to this date (ISO format)"
+    )
+
+
 class ChatRequest(BaseModel):
     """Request schema for chat endpoint."""
 
@@ -43,6 +68,22 @@ class ChatRequest(BaseModel):
     include_sources: bool = Field(
         default=True,
         description="Whether to include source documents in response"
+    )
+    use_hybrid_search: bool = Field(
+        default=False,
+        description="Use hybrid search (keyword + semantic)"
+    )
+    use_reranking: bool = Field(
+        default=False,
+        description="Use cross-encoder reranking"
+    )
+    use_query_expansion: bool = Field(
+        default=False,
+        description="Use query expansion for better retrieval"
+    )
+    metadata_filter: MetadataFilter | None = Field(
+        default=None,
+        description="Filter documents by metadata"
     )
 
 
@@ -114,6 +155,22 @@ class ChatStreamRequest(BaseModel):
         ge=1,
         le=20,
         description="Number of documents to retrieve"
+    )
+    use_hybrid_search: bool = Field(
+        default=False,
+        description="Use hybrid search (keyword + semantic)"
+    )
+    use_reranking: bool = Field(
+        default=False,
+        description="Use cross-encoder reranking"
+    )
+    use_query_expansion: bool = Field(
+        default=False,
+        description="Use query expansion for better retrieval"
+    )
+    metadata_filter: MetadataFilter | None = Field(
+        default=None,
+        description="Filter documents by metadata"
     )
 
 

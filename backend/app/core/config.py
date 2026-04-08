@@ -101,6 +101,24 @@ class Settings(BaseSettings):
     chunk_overlap: int = 200
 
     # -----------------
+    # Redis Configuration
+    # -----------------
+    redis_url: str = "redis://localhost:6379/0"
+    redis_enabled: bool = True
+
+    # Cache TTL in seconds
+    cache_ttl_query: int = 3600  # 1 hour for query results
+    cache_ttl_embeddings: int = 86400  # 24 hours for embeddings
+    cache_ttl_documents: int = 7200  # 2 hours for document data
+
+    # -----------------
+    # Performance Optimization
+    # -----------------
+    embedding_batch_size: int = 100  # Batch size for embedding generation
+    max_concurrent_embeddings: int = 5  # Max concurrent embedding requests
+    async_ingestion_enabled: bool = True  # Enable async document processing
+
+    # -----------------
     # Rate Limiting
     # -----------------
     rate_limit_per_minute: int = 60

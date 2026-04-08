@@ -14,6 +14,7 @@ from app.schemas.chat import (
     ChatStreamRequest,
     SourceDocument,
 )
+from app.services.advanced_rag_chain import get_advanced_rag_chain
 from app.services.conversation_service import get_conversation_service
 from app.services.rag_chain import get_rag_chain
 

@@ -2,13 +2,14 @@
 
 from fastapi import APIRouter
 
-from app.api.routes import auth, chat, conversations, documents, health
+from app.api.routes import auth, chat, conversations, documents, health, monitoring
 
 # Main API router
 api_router = APIRouter()
 
 # Include route modules
 api_router.include_router(health.router, prefix="/health", tags=["health"])
+api_router.include_router(monitoring.router, prefix="/monitoring", tags=["monitoring"])
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(documents.router, prefix="/documents", tags=["documents"])
 api_router.include_router(chat.router, prefix="/chat", tags=["chat"])

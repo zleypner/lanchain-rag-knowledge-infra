@@ -1,5 +1,7 @@
 """Embedding service for generating vector embeddings from text."""
 
+import asyncio
+import hashlib
 import logging
 from typing import Protocol
 
@@ -7,6 +9,7 @@ from langchain_core.documents import Document
 
 from app.core.config import settings
 from app.core.exceptions import EmbeddingException
+from app.services.redis_cache import get_redis_cache
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +54,10 @@ class EmbeddingService:
         self.ollama_model = ollama_model or settings.ollama_embedding_model
 
         self._embedding_provider: EmbeddingProvider | None = None
+        self._cache = get_redis_cache()
+        self._batch_size = settings.embedding_batch_size
+        self._max_concurrent = settings.max_concurrent_embeddings
+
         self._initialize_provider()
 
     def _initialize_provider(self) -> None:
@@ -134,9 +141,14 @@ class EmbeddingService:
         """Get the model name being used."""
         return self.openai_model if self.use_openai else self.ollama_model
 
+    def _generate_cache_key(self, text: str) -> str:
+        """Generate a cache key for a text."""
+        text_hash = hashlib.sha256(text.encode()).hexdigest()
+        return f"{self.provider_name}:{self.model_name}:{text_hash}"
+
     def get_embeddings(self, texts: list[str]) -> list[list[float]]:
         """
-        Generate embeddings for a list of texts.
+        Generate embeddings for a list of texts with caching and batching.
 
         Args:
             texts: List of text strings to embed.
@@ -157,11 +169,52 @@ class EmbeddingService:
             )
 
         try:
-            logger.debug(f"Generating embeddings for {len(texts)} texts")
-            embeddings = self._embedding_provider.embed_documents(texts)
+            # Try to get cached embeddings
+            embeddings: list[list[float] | None] = []
+            texts_to_embed: list[tuple[int, str]] = []
+
+            for idx, text in enumerate(texts):
+                cache_key = self._generate_cache_key(text)
+                cached = self._cache.get("embedding", cache_key)
+
+                if cached is not None:
+                    embeddings.append(cached)
+                else:
+                    embeddings.append(None)
+                    texts_to_embed.append((idx, text))
+
+            # Generate embeddings for uncached texts in batches
+            if texts_to_embed:
+                logger.debug(
+                    f"Cache miss: generating embeddings for {len(texts_to_embed)}/{len(texts)} texts"
+                )
+
+                # Process in batches
+                for i in range(0, len(texts_to_embed), self._batch_size):
+                    batch = texts_to_embed[i : i + self._batch_size]
+                    batch_texts = [text for _, text in batch]
+
+                    # Generate embeddings for batch
+                    batch_embeddings = self._embedding_provider.embed_documents(
+                        batch_texts
+                    )
+
+                    # Store in cache and results
+                    for (idx, text), embedding in zip(batch, batch_embeddings):
+                        embeddings[idx] = embedding
+                        cache_key = self._generate_cache_key(text)
+                        self._cache.set(
+                            "embedding",
+                            cache_key,
+                            embedding,
+                            ttl=settings.cache_ttl_embeddings,
+                        )
+
             logger.info(
-                f"Generated {len(embeddings)} embeddings using {self.provider_name}"
+                f"Generated {len(texts)} embeddings using {self.provider_name} "
+                f"({len(texts_to_embed)} new, {len(texts) - len(texts_to_embed)} cached)"
             )
+
             return embeddings
 
         except Exception as e:
@@ -239,10 +292,7 @@ class EmbeddingService:
 
     async def aget_embeddings(self, texts: list[str]) -> list[list[float]]:
         """
-        Async version of get_embeddings.
-
-        Note: This currently wraps the synchronous method.
-        Future versions may use native async embedding APIs.
+        Async version of get_embeddings with concurrent processing.
 
         Args:
             texts: List of text strings to embed.
@@ -250,9 +300,94 @@ class EmbeddingService:
         Returns:
             List of embedding vectors.
         """
-        # For now, delegate to synchronous method
-        # LangChain's OpenAI embeddings have async support but we keep it simple
-        return self.get_embeddings(texts)
+        if not texts:
+            return []
+
+        if self._embedding_provider is None:
+            raise EmbeddingException(
+                message="Embedding provider not initialized",
+                details={"provider": self.provider_name},
+            )
+
+        try:
+            # Check cache first
+            embeddings: list[list[float] | None] = []
+            texts_to_embed: list[tuple[int, str]] = []
+
+            for idx, text in enumerate(texts):
+                cache_key = self._generate_cache_key(text)
+                cached = self._cache.get("embedding", cache_key)
+
+                if cached is not None:
+                    embeddings.append(cached)
+                else:
+                    embeddings.append(None)
+                    texts_to_embed.append((idx, text))
+
+            # Generate embeddings for uncached texts with concurrency control
+            if texts_to_embed:
+                logger.debug(
+                    f"Async cache miss: generating embeddings for {len(texts_to_embed)}/{len(texts)} texts"
+                )
+
+                # Split into batches
+                batches = [
+                    texts_to_embed[i : i + self._batch_size]
+                    for i in range(0, len(texts_to_embed), self._batch_size)
+                ]
+
+                # Process batches with concurrency limit
+                semaphore = asyncio.Semaphore(self._max_concurrent)
+
+                async def process_batch(
+                    batch: list[tuple[int, str]]
+                ) -> list[tuple[int, str, list[float]]]:
+                    async with semaphore:
+                        batch_texts = [text for _, text in batch]
+                        # Run in executor to avoid blocking
+                        loop = asyncio.get_event_loop()
+                        batch_embeddings = await loop.run_in_executor(
+                            None, self._embedding_provider.embed_documents, batch_texts
+                        )
+                        return [
+                            (idx, text, emb)
+                            for (idx, text), emb in zip(batch, batch_embeddings)
+                        ]
+
+                # Process all batches concurrently
+                batch_results = await asyncio.gather(
+                    *[process_batch(batch) for batch in batches]
+                )
+
+                # Store results and cache
+                for batch_result in batch_results:
+                    for idx, text, embedding in batch_result:
+                        embeddings[idx] = embedding
+                        cache_key = self._generate_cache_key(text)
+                        self._cache.set(
+                            "embedding",
+                            cache_key,
+                            embedding,
+                            ttl=settings.cache_ttl_embeddings,
+                        )
+
+            logger.info(
+                f"Async generated {len(texts)} embeddings using {self.provider_name} "
+                f"({len(texts_to_embed)} new, {len(texts) - len(texts_to_embed)} cached)"
+            )
+
+            return embeddings
+
+        except Exception as e:
+            logger.exception(f"Failed to generate async embeddings: {e}")
+            raise EmbeddingException(
+                message=f"Failed to generate async embeddings: {str(e)}",
+                details={
+                    "provider": self.provider_name,
+                    "model": self.model_name,
+                    "num_texts": len(texts),
+                },
+            ) from e
 
     async def aembed_query(self, query: str) -> list[float]:
         """

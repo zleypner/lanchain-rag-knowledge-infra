@@ -1,17 +1,25 @@
 """RAG chain implementation using LangChain Expression Language (LCEL)."""
 
-import logging
+import hashlib
+import json
+import time
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
+from app.core.config import settings
 from app.core.exceptions import RAGException
+from app.observability import get_logger, get_metrics
+from app.observability.tracer import get_rag_tracer
 from app.services.llm_service import get_llm_service
+from app.services.redis_cache import get_redis_cache
 from app.services.retrieval_service import get_retrieval_service
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+metrics = get_metrics()
+tracer = get_rag_tracer()
 
 
 @dataclass
@@ -56,8 +64,23 @@ class RAGChain:
 
         self.retrieval_service = get_retrieval_service()
         self.llm_service = get_llm_service()
+        self._cache = get_redis_cache()
 
         logger.info("Initialized RAG chain")
+
+    def _generate_cache_key(self, question: str, k: int, history_hash: str = "") -> str:
+        """Generate a cache key for a query."""
+        query_data = f"{question}:{k}:{history_hash}"
+        return hashlib.sha256(query_data.encode()).hexdigest()
+
+    def _hash_history(self, chat_history: list[BaseMessage] | None) -> str:
+        """Generate a hash for chat history."""
+        if not chat_history:
+            return ""
+        history_str = json.dumps(
+            [{"role": type(msg).__name__, "content": msg.content} for msg in chat_history]
+        )
+        return hashlib.sha256(history_str.encode()).hexdigest()[:16]
 
     async def query(
         self,
@@ -79,59 +102,120 @@ class RAGChain:
         Raises:
             RAGException: If the RAG pipeline fails.
         """
-        logger.info(f"Processing RAG query: {question[:50]}...")
+        start_time = time.time()
+        logger.info("rag_query_started", query_length=len(question))
 
-        try:
-            # Step 1: Retrieve relevant documents
-            k = k or self.k
-            documents = await self.retrieval_service.retrieve(question, k=k)
+        with tracer.trace_query(question) as query_span:
+            try:
+                # Step 1: Retrieve relevant documents
+                k = k or self.k
+                retrieval_start = time.time()
 
-            if not documents:
-                logger.warning("No relevant documents found")
-                return RAGResponse(
-                    answer="I couldn't find any relevant information in the knowledge base to answer your question.",
-                    sources=[],
-                    context_used="",
-                    metadata={"documents_found": 0},
+                with tracer.trace_retrieval(k=k) as retrieval_span:
+                    documents = await self.retrieval_service.retrieve(question, k=k)
+                    retrieval_span.set_attribute("documents_retrieved", len(documents))
+
+                retrieval_time = time.time() - retrieval_start
+
+                if not documents:
+                    logger.warning("no_documents_found", query=question[:50])
+                    metrics.record_rag_query(
+                        duration=time.time() - start_time,
+                        status="no_results",
+                        retrieval_time=retrieval_time,
+                        documents_retrieved=0,
+                    )
+                    return RAGResponse(
+                        answer="I couldn't find any relevant information in the knowledge base to answer your question.",
+                        sources=[],
+                        context_used="",
+                        metadata={"documents_found": 0},
+                    )
+
+                # Step 2: Format context
+                context = self.retrieval_service.format_context(
+                    documents, include_metadata=True
                 )
 
-            # Step 2: Format context
-            context = self.retrieval_service.format_context(
-                documents, include_metadata=True
-            )
+                # Step 3: Generate response
+                generation_start = time.time()
 
-            # Step 3: Generate response
-            answer = await self.llm_service.generate_with_context(
-                question=question,
-                context=context,
-                chat_history=chat_history,
-                system_prompt=self.system_prompt,
-            )
+                with tracer.trace_generation(
+                    model=self.llm_service.model_name,
+                    provider=self.llm_service.provider_name,
+                ) as generation_span:
+                    answer = await self.llm_service.generate_with_context(
+                        question=question,
+                        context=context,
+                        chat_history=chat_history,
+                        system_prompt=self.system_prompt,
+                    )
+                    generation_span.set_attribute("answer_length", len(answer))
 
-            # Step 4: Extract sources
-            sources = []
-            if self.include_sources:
-                sources = self.retrieval_service.get_source_documents(documents)
+                generation_time = time.time() - generation_start
 
-            logger.info(f"Generated response with {len(sources)} sources")
+                # Step 4: Extract sources
+                sources = []
+                if self.include_sources:
+                    sources = self.retrieval_service.get_source_documents(documents)
 
-            return RAGResponse(
-                answer=answer,
-                sources=sources,
-                context_used=context,
-                metadata={
-                    "documents_found": len(documents),
-                    "llm_provider": self.llm_service.provider_name,
-                    "llm_model": self.llm_service.model_name,
-                },
-            )
+                total_time = time.time() - start_time
 
-        except Exception as e:
-            logger.exception(f"RAG query failed: {e}")
-            raise RAGException(
-                message=f"RAG pipeline failed: {str(e)}",
-                details={"question": question},
-            ) from e
+                logger.info(
+                    "rag_query_completed",
+                    documents_found=len(documents),
+                    sources_count=len(sources),
+                    total_time_ms=round(total_time * 1000, 2),
+                    retrieval_time_ms=round(retrieval_time * 1000, 2),
+                    generation_time_ms=round(generation_time * 1000, 2),
+                )
+
+                # Record metrics
+                metrics.record_rag_query(
+                    duration=total_time,
+                    status="success",
+                    retrieval_time=retrieval_time,
+                    generation_time=generation_time,
+                    documents_retrieved=len(documents),
+                )
+
+                query_span.set_attribute("documents_found", len(documents))
+                query_span.set_attribute("sources_count", len(sources))
+
+                return RAGResponse(
+                    answer=answer,
+                    sources=sources,
+                    context_used=context,
+                    metadata={
+                        "documents_found": len(documents),
+                        "llm_provider": self.llm_service.provider_name,
+                        "llm_model": self.llm_service.model_name,
+                        "retrieval_time_ms": round(retrieval_time * 1000, 2),
+                        "generation_time_ms": round(generation_time * 1000, 2),
+                        "total_time_ms": round(total_time * 1000, 2),
+                    },
+                )
+
+            except Exception as e:
+                total_time = time.time() - start_time
+                logger.error(
+                    "rag_query_failed",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    duration_ms=round(total_time * 1000, 2),
+                )
+                metrics.record_rag_query(
+                    duration=total_time,
+                    status="error",
+                )
+                metrics.record_error(
+                    error_type=type(e).__name__,
+                    component="rag_chain",
+                )
+                raise RAGException(
+                    message=f"RAG pipeline failed: {str(e)}",
+                    details={"question": question},
+                ) from e
 
     async def stream(
         self,
